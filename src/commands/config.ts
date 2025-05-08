@@ -9,6 +9,7 @@ import { join as pathJoin, resolve as pathResolve } from 'path';
 import { COMMANDS } from './ENUMS';
 import { TEST_MOCK_TYPES } from '../engine/testAi';
 import { getI18nLocal, i18n } from '../i18n';
+import { spawnSync } from 'child_process';
 
 export enum CONFIG_KEYS {
   OCO_API_KEY = 'OCO_API_KEY',
@@ -623,6 +624,57 @@ export const setConfig = (
   outro(`${chalk.green('✔')} config successfully set`);
 };
 
+// Pager utility
+function pageOutput(output: string) {
+  if (process.stdout.isTTY) {
+    const pager = spawnSync('less', ['-R'], { input: output, stdio: ['pipe', 'inherit', 'inherit'] });
+    if (pager.error) {
+      process.stdout.write(output);
+    }
+  } else {
+    process.stdout.write(output);
+  }
+}
+
+function getConfigKeyHelpString(param) {
+  let out = '';
+  if (!Object.values(CONFIG_KEYS).includes(param)) {
+    out += chalk.red(`Unknown config parameter: ${param}`) + '\n';
+    return out;
+  }
+
+  const details = getConfigKeyDetails(param as CONFIG_KEYS);
+
+  out += chalk.bold(`\n${param}:`) + '\n';
+  out += chalk.gray(`  Description: ${details.description}`) + '\n';
+
+  if (Array.isArray(details.values)) {
+    out += chalk.gray('  Accepted values:') + '\n';
+    details.values.forEach(value => {
+      out += chalk.gray(`    - ${value}`) + '\n';
+    });
+  } else {
+    out += chalk.gray('  Accepted values by provider:') + '\n';
+    Object.entries(details.values).forEach(([provider, values]) => {
+      out += chalk.gray(`    ${provider}:`) + '\n';
+      (values as string[]).forEach(value => {
+        out += chalk.gray(`      - ${value}`) + '\n';
+      });
+    });
+  }
+  return out;
+}
+
+function getAllConfigHelpString() {
+  let out = '';
+  out += chalk.bold('Available config parameters:') + '\n';
+  for (const key of Object.values(CONFIG_KEYS)) {
+    out += getConfigKeyHelpString(key);
+  }
+  out += chalk.gray('\nFor more help, see https://github.com/di-sukharev/opencommit') + '\n';
+  return out;
+}
+
 // --- HELP MESSAGE GENERATION ---
 function getConfigKeyDetails(key) {
   switch (key) {
@@ -702,41 +754,6 @@ function getConfigKeyDetails(key) {
   }
 }
 
-function printConfigKeyHelp(param) {
-  if (!Object.values(CONFIG_KEYS).includes(param)) {
-    console.log(chalk.red(`Unknown config parameter: ${param}`));
-    return;
-  }
-
-  const details = getConfigKeyDetails(param as CONFIG_KEYS);
-  
-  console.log(chalk.bold(`\n${param}:`));
-  console.log(chalk.gray(`  Description: ${details.description}`));
-  
-  if (Array.isArray(details.values)) {
-    console.log(chalk.gray('  Accepted values:'));
-    details.values.forEach(value => {
-      console.log(chalk.gray(`    - ${value}`));
-    });
-  } else {
-    console.log(chalk.gray('  Accepted values by provider:'));
-    Object.entries(details.values).forEach(([provider, values]) => {
-      console.log(chalk.gray(`    ${provider}:`));
-      (values as string[]).forEach(value => {
-        console.log(chalk.gray(`      - ${value}`));
-      });
-    });
-  }
-}
-
-function printAllConfigHelp() {
-  console.log(chalk.bold('Available config parameters:'));
-  for (const key of Object.values(CONFIG_KEYS)) {
-    printConfigKeyHelp(key);
-  }
-  console.log(chalk.gray('\nFor more help, see https://github.com/di-sukharev/opencommit'));
-}
-
 export const configCommand = command(
   {
     name: COMMANDS.config,
@@ -757,13 +774,13 @@ export const configCommand = command(
       intro(`COMMAND: config ${mode} ${keyValues}`);
 
       if (mode === CONFIG_MODES.describe) {
+        let output = '';
         if (!keyValues || keyValues.length === 0) {
-          printAllConfigHelp();
+          output = getAllConfigHelpString();
         } else {
-          for (const key of keyValues) {
-            printConfigKeyHelp(key);
-          }
+          output = keyValues.map(getConfigKeyHelpString).join('');
         }
+        pageOutput(output);
         process.exit(0);
       } else if (mode === CONFIG_MODES.get) {
         if (!keyValues || keyValues.length === 0) {
